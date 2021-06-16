@@ -1,2 +1,2 @@
 # Liver_transplant
-Estimating the 5-year survival rate of liver transplant patients
+Estimating the 5-year survival of liver transplant patients
