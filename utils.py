@@ -1,6 +1,13 @@
 import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt
+from sklearn.base import BaseEstimator, ClassifierMixin
+import tensorflow as tf
+from tensorflow.keras.metrics import TrueNegatives, TruePositives, FalseNegatives, FalsePositives
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+
+seed = 42
 
 def plot_pie (series: pd.Series, show_plot: bool):
     if show_plot:
@@ -196,4 +203,89 @@ def get_cost (y_true, y_pred, cost_matrix: dict):
             raise ValueError("{} or {} is a value not recognized. It should be 0 or 1!".format(t, p))
             
     return cost
+
+def get_cost_tf (y_true, y_pred, cost_matrix: dict):
+    # cost_matrix structure: {'TN': TN cost, TP: TP cost, FN: FN cost, FP: FP cost'}
     
+    cost = 0
+    
+    tn = tf.keras.metrics.TrueNegatives()
+    tn.update_state(y_true, y_pred)
+    cost += tn.result().numpy() * cost_matrix['TN']
+    
+    tp = tf.keras.metrics.TruePositives()
+    tp.update_state(y_true, y_pred)
+    cost += tp.result().numpy() * cost_matrix['TP']
+    
+    fn = tf.keras.metrics.FalseNegatives()
+    fn.update_state(y_true, y_pred)
+    cost += fn.result().numpy() * cost_matrix['FN']
+    
+    fp = tf.keras.metrics.FalsePositives()
+    fp.update_state(y_true, y_pred)
+    cost += fp.result().numpy() * cost_matrix['FP']
+                
+    return cost
+
+class CostMetric (tf.keras.metrics.Metric):
+    def __init__ (self, cost_matrix: dict, **kwargs):
+        super(CostMetric, self).__init__(name='cost', **kwargs)
+
+        self.cost = 0
+        self.cost_matrix = cost_matrix
+    
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        self.cost += get_cost_tf(y_true, y_pred, self.cost_matrix)
+        
+    def reset_states(self):
+        self.cost = 0
+        
+    def result(self):
+          return self.cost
+
+class NeuralNetwork (BaseEstimator, ClassifierMixin):
+    def __init__(self,
+                 cost_matrix: dict,
+                 lr = 0.0001,
+                 epochs = 10,
+                 batch_size = 8,
+                 input_dim = 64,
+                 output_dim = 1,
+                 hidden_dim = [32, 10],
+                 class_weight = {0: 1, 1: 1}):
+
+        self.cost_matrix = cost_matrix
+        self.lr = lr
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.hidden_dim = hidden_dim
+        self.class_weight = class_weight
+        
+        if len(hidden_dim) < 1:
+            raise ValueError("List hidden_dim must have at least 1 element!")
+        
+        self.model = Sequential()
+        self.model.add(Dense(hidden_dim[0], input_dim=input_dim, activation='relu'))
+        for h in hidden_dim[1:]:
+            self.model.add(Dense(h, activation='relu'))
+        self.model.add(Dense(output_dim, activation='sigmoid'))
+                
+        #self.callback = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=3)
+
+        self.model.compile(optimizer='adam',
+                          loss='binary_crossentropy',
+                          metrics=[CostMetric(self.cost_matrix)],
+                          run_eagerly=True)
+                           
+    def fit(self, X, y):
+        tf.random.set_seed(42)
+        #return self.model.fit(X, y, epochs=self.epochs, callbacks=[self.callback])
+        return self.model.fit(X, y,
+                              epochs=self.epochs,
+                              #validation_split=0.2,
+                              class_weight=self.class_weight)
+        
+    def predict(self, X):
+        return self.model.predict(X)
