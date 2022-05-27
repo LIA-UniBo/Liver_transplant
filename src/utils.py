@@ -6,6 +6,12 @@ import tensorflow as tf
 from tensorflow.keras.metrics import TrueNegatives, TruePositives, FalseNegatives, FalsePositives
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
+from tensorflow import keras
+from tensorflow.keras import layers
+import tensorflow.keras.backend as k
+import tensorflow_probability as tfp
+
+
 
 seed = 42
 
@@ -289,3 +295,76 @@ class NeuralNetwork (BaseEstimator, ClassifierMixin):
         
     def predict(self, X):
         return self.model.predict(X)
+
+
+# Function to build a regressor
+def build_regressor(input_shape, hidden):
+
+    model_in = keras.Input(shape=input_shape, dtype='float32')
+    x = model_in
+    for h in hidden:
+        x = layers.Dense(h, activation='relu')(x)
+    model_out = layers.Dense(1, activation='linear')(x)
+    model = keras.Model(model_in, model_out)
+    return model
+
+class SurvivalNN(keras.Model):
+
+    def __init__(self, ninput, hidden, **params):
+
+        super(SurvivalNN, self).__init__(**params)
+        self.ninput = ninput
+        self.hidden = hidden
+        self.metric_loss = keras.metrics.Mean(name="loss")
+
+        self.layers_ = [layers.Dense(self.ninput, activation=tf.nn.relu)]
+        for h in self.hidden: 
+            self.layers_.append(layers.Dense(h, activation=tf.nn.relu))
+        self.layers_.append(layers.Dense(1, activation='linear')) 
+
+    def call(self, inputs, training=False):
+        x = inputs
+        for layer in self.layers_:
+            x = layer(x)
+        return x
+
+    def custom_loss(self, flags):
+        flags = tf.expand_dims(flags, axis=1)
+
+        def negbin_loss(y_true, y_pred):
+
+            dist = tfp.distributions.NegativeBinomial(total_count=1, logits=y_pred)
+            #dist2 = tfp.distributions.NegativeBinomial(total_count=1, logits=(1 - flags) * y_pred)
+            y_true = tf.expand_dims(y_true, axis=1)
+            return - k.sum((1 - flags) *  k.log(1 - dist.cdf(y_true))  + flags * k.log(dist.prob(y_true)))
+            #return - k.sum(k.log(1 - dist.cdf((1 - flags) * y_true) + k.epsilon())) - k.sum(dist.log_prob(flags * y_true))
+
+        return negbin_loss
+
+    @tf.function
+    def train_step(self, data):
+        
+        x, y = data 
+        y, c = y[:, 0], y[:, 1]
+
+        with tf.GradientTape() as tape:
+            y_pred = self(x, training=True)
+            negbin_loss = self.custom_loss(c)
+            loss = negbin_loss(y, y_pred)
+
+        # Compute gradients
+        trainable_vars = self.trainable_variables
+        gradients = tape.gradient(loss, trainable_vars)
+        # Update weights
+        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+        # Update main metrics
+        self.metric_loss.update_state(loss)
+        # Update metrics (includes the metric that tracks the loss)
+        self.compiled_metrics.update_state(y, y_pred)
+        # Return a dict mapping metric names to current value
+        return {m.name: m.result() for m in self.metrics}
+
+    @property
+    def metrics(self):
+        return [self.metric_loss]
+        # return [self.metric_loss, self.metric_regret]
