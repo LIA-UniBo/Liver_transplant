@@ -59,7 +59,7 @@ class SurvivalNN(keras.Model):
 
         with tf.GradientTape() as tape:
             y_pred = self(x, training=True)
-            negbin_loss = self.custom_loss(c)
+            negbin_loss = self.custom_loss(flags)
             loss = negbin_loss(y, y_pred)
 
         # Compute gradients
@@ -116,10 +116,4 @@ def eval(y_true, p, n=1):
     print("= p-value: " + str(res.p_value))
     print("= test statistic: " + str(res.test_statistic))
     print("========================")
-
-
-
-    
-
-
 
