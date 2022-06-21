@@ -336,7 +336,7 @@ class SurvivalNN(keras.Model):
             dist = tfp.distributions.NegativeBinomial(total_count=1, logits=y_pred)
             #dist2 = tfp.distributions.NegativeBinomial(total_count=1, logits=(1 - flags) * y_pred)
             y_true = tf.expand_dims(y_true, axis=1)
-            return - k.sum((1 - flags) *  k.log(1 - dist.cdf(y_true))  + flags * k.log(dist.prob(y_true)))
+            return - k.sum((1 - flags) *  k.log(1 - dist.cdf(y_true) + k.epsilon()) + flags * k.log(dist.prob(y_true) + k.epsilon()))
             #return - k.sum(k.log(1 - dist.cdf((1 - flags) * y_true) + k.epsilon())) - k.sum(dist.log_prob(flags * y_true))
 
         return negbin_loss
