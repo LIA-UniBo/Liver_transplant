@@ -1,1 +1,14 @@
+# data 
+data/
 data.xlsx
+
+# system
+
+## PyCharm
+.idea/ 
+
+## Jupyter
+.ipynb_checkpoints/
+
+## Python
+src/__pycache__/
